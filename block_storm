@@ -1,0 +1,480 @@
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
+import java.util.Arrays;
+import java.util.Random;
+import java.util.Date;
+
+/**
+ * Tetris - está simplificado em um único arquivo
+ * Só rodar pelo run do vscode
+ * Controles:
+ * - Left/Right: mover a peças
+ * - Up: girar
+ * - Down: soltar suavemente
+ * - Space: soltar bruscamente
+ * - P: pausar
+ */
+public class Block_Storm extends JPanel implements ActionListener {
+    private final int BOARD_WIDTH = 10;
+    private final int BOARD_HEIGHT = 20;
+    private final int CELL_SIZE = 30; // pixels
+
+    private Timer timer;
+    private boolean isFallingFinished = false;
+    private boolean isPaused = false;
+    private int score = 0;
+    private int linesRemoved = 0;
+    private int currentX = 0;
+    private int currentY = 0;
+    private Tetrominoes currentPiece;
+    private Tetrominoes nextPiece;
+    private int[][] board; // 0 empty, >0 color index
+
+    private Random random = new Random();
+
+    public Block_Storm() {
+        setFocusable(true);
+        setPreferredSize(new Dimension(BOARD_WIDTH * CELL_SIZE + 150, BOARD_HEIGHT * CELL_SIZE));
+        setMinimumSize(new Dimension(BOARD_WIDTH * CELL_SIZE + 150, BOARD_HEIGHT * CELL_SIZE));
+        board = new int[BOARD_HEIGHT][BOARD_WIDTH];
+        clearBoard();
+        addKeyListener(new TAdapter());
+        nextPiece = randomPiece();
+        initGame();
+
+        // Adiciona o botão de reiniciar
+        SwingUtilities.invokeLater(this::createRestartButton);
+    }
+
+    private void initGame() {
+        currentPiece = nextPiece;
+        nextPiece = randomPiece();
+        currentX = BOARD_WIDTH / 2 - 2; // centro horizontal
+        currentY = 0;
+        timer = new Timer(500, this);
+        timer.start();
+    }
+
+    private Tetrominoes randomPiece() {
+        Tetrominoes[] vals = Tetrominoes.values();
+        return vals[random.nextInt(vals.length - 1) + 1]; // skip NoShape at 0
+    }
+
+    private void clearBoard() {
+        for (int i = 0; i < BOARD_HEIGHT; i++)
+            Arrays.fill(board[i], 0);
+    }
+
+    @Override
+    public void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        doDrawing(g);
+    }
+
+    private void doDrawing(Graphics g) {
+        // fundo
+        g.setColor(Color.BLACK);
+        g.fillRect(0, 0, BOARD_WIDTH * CELL_SIZE, BOARD_HEIGHT * CELL_SIZE);
+
+        // draw board
+        for (int i = 0; i < BOARD_HEIGHT; i++) {
+            for (int j = 0; j < BOARD_WIDTH; j++) {
+                int val = board[i][j];
+                if (val != 0)
+                    drawCell(g, j * CELL_SIZE, i * CELL_SIZE, val);
+            }
+        }
+
+        // desenho da peça atual
+        if (currentPiece != null) {
+            int[][] shape = currentPiece.coords;
+            for (int i = 0; i < shape.length; i++) {
+                int x = currentX + shape[i][0];
+                int y = currentY + shape[i][1];
+                drawCell(g, x * CELL_SIZE, y * CELL_SIZE, currentPiece.ordinal());
+            }
+        }
+
+        // linhas de grade
+        g.setColor(Color.DARK_GRAY);
+        for (int i = 0; i <= BOARD_HEIGHT; i++)
+            g.drawLine(0, i * CELL_SIZE, BOARD_WIDTH * CELL_SIZE, i * CELL_SIZE);
+        for (int j = 0; j <= BOARD_WIDTH; j++)
+            g.drawLine(j * CELL_SIZE, 0, j * CELL_SIZE, BOARD_HEIGHT * CELL_SIZE);
+
+        // painel lateral: próxima peça e pontuação atual
+        int panelX = BOARD_WIDTH * CELL_SIZE + 10;
+        g.setColor(Color.LIGHT_GRAY);
+        g.drawString("Score: " + score, panelX, 30);
+        g.drawString("Lines: " + linesRemoved, panelX, 50);
+        g.drawString("Next:", panelX, 90);
+
+        // desenho da próxima peça
+        if (nextPiece != null) {
+            int[][] shape = nextPiece.coords;
+            int offsetX = panelX;
+            int offsetY = 100;
+            for (int i = 0; i < shape.length; i++) {
+                int x = offsetX + (shape[i][0] + 1) * (CELL_SIZE / 2);
+                int y = offsetY + (shape[i][1] + 1) * (CELL_SIZE / 2);
+                drawSmallCell(g, x, y, nextPiece.ordinal());
+            }
+        }
+
+        if (isPaused) {
+            g.setColor(Color.WHITE);
+            g.drawString("PAUSED", BOARD_WIDTH * CELL_SIZE / 2 - 20, BOARD_HEIGHT * CELL_SIZE / 2);
+        }
+    }
+
+    private void drawCell(Graphics g, int x, int y, int val) {
+        Color color = shapeColor(val);
+        g.setColor(color);
+        g.fillRect(x + 1, y + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+        g.setColor(color.brighter());
+        g.drawLine(x + 1, y + CELL_SIZE - 2, x + CELL_SIZE - 2, y + CELL_SIZE - 2);
+        g.setColor(color.darker());
+        g.drawLine(x + 1, y + 1, x + 1, y + CELL_SIZE - 2);
+    }
+
+    private void drawSmallCell(Graphics g, int x, int y, int val) {
+        Color color = shapeColor(val);
+        int s = CELL_SIZE / 2 - 2;
+        g.setColor(color);
+        g.fillRect(x, y, s, s);
+        g.setColor(color.darker());
+        g.drawRect(x, y, s, s);
+    }
+
+    private Color shapeColor(int val) {
+        switch (val) {
+            case 1:
+                return Color.CYAN; // I
+            case 2:
+                return Color.BLUE; // J
+            case 3:
+                return Color.ORANGE; // L
+            case 4:
+                return Color.YELLOW; // O
+            case 5:
+                return Color.GREEN; // S
+            case 6:
+                return Color.MAGENTA; // T
+            case 7:
+                return Color.RED; // Z
+            default:
+                return Color.GRAY;
+        }
+    }
+
+    @Override
+    public void actionPerformed(ActionEvent e) {
+        if (isFallingFinished) {
+            isFallingFinished = false;
+            spawnPiece();
+        } else if (!isPaused) {
+            oneLineDown();
+        }
+        repaint();
+    }
+
+    private void spawnPiece() {
+        currentPiece = nextPiece;
+        nextPiece = randomPiece();
+        currentX = BOARD_WIDTH / 2 - 2;
+        currentY = 0;
+
+        if (!tryMove(currentPiece, currentX, currentY)) {
+            timer.stop();
+            String msg = "Game Over. Score: " + score + ", Lines: " + linesRemoved;
+            JOptionPane.showMessageDialog(this, msg);
+        }
+    }
+
+    private void oneLineDown() {
+        if (!tryMove(currentPiece, currentX, currentY + 1)) {
+            pieceLanded();
+        }
+    }
+
+    private void pieceLanded() {
+        // peça no placar
+        int[][] shape = currentPiece.coords;
+        for (int i = 0; i < shape.length; i++) {
+            int x = currentX + shape[i][0];
+            int y = currentY + shape[i][1];
+            if (y >= 0 && y < BOARD_HEIGHT && x >= 0 && x < BOARD_WIDTH)
+                board[y][x] = currentPiece.ordinal();
+        }
+        removeFullLines();
+        isFallingFinished = true;
+    }
+
+    private void removeFullLines() {
+        int numFullLines = 0;
+        for (int i = BOARD_HEIGHT - 1; i >= 0; i--) {
+            boolean full = true;
+            for (int j = 0; j < BOARD_WIDTH; j++) {
+                if (board[i][j] == 0) {
+                    full = false;
+                    break;
+                }
+            }
+            if (full) {
+                numFullLines++;
+                for (int k = i; k > 0; k--)
+                    board[k] = Arrays.copyOf(board[k - 1], BOARD_WIDTH);
+                board[0] = new int[BOARD_WIDTH];
+                i++;
+            }
+        }
+        if (numFullLines > 0) {
+            linesRemoved += numFullLines;
+            score += calcScore(numFullLines);
+            // aceleração do tempo
+            int newDelay = Math.max(100, timer.getDelay() - numFullLines * 10);
+            timer.setDelay(newDelay);
+        }
+    }
+
+    private int calcScore(int lines) {
+        switch (lines) {
+            case 1:
+                return 40;
+            case 2:
+                return 100;
+            case 3:
+                return 300;
+            case 4:
+                return 1200;
+            default:
+                return lines * 100;
+        }
+    }
+
+    private boolean tryMove(Tetrominoes piece, int newX, int newY) {
+        int[][] shape = piece.coords;
+        for (int i = 0; i < shape.length; i++) {
+            int x = newX + shape[i][0];
+            int y = newY + shape[i][1];
+            if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT)
+                return false;
+            if (board[y][x] != 0)
+                return false;
+        }
+        currentX = newX;
+        currentY = newY;
+        return true;
+    }
+
+    private void dropDown() {
+        int newY = currentY;
+        while (tryMove(currentPiece, currentX, newY + 1))
+            newY++;
+        currentY = newY;
+        pieceLanded();
+    }
+
+    private void rotatePiece() {
+        Tetrominoes rotated = currentPiece.rotate();
+        if (tryMove(rotated, currentX, currentY)) {
+            currentPiece = rotated;
+        }
+    }
+
+    class TAdapter extends KeyAdapter {
+        @Override
+        public void keyPressed(KeyEvent e) {
+            if (currentPiece == null)
+                return;
+            int keycode = e.getKeyCode();
+            if (keycode == KeyEvent.VK_P) {
+                pause();
+                return;
+            }
+            if (isPaused)
+                return;
+            switch (keycode) {
+                case KeyEvent.VK_LEFT:
+                    tryMove(currentPiece, currentX - 1, currentY);
+                    break;
+                case KeyEvent.VK_RIGHT:
+                    tryMove(currentPiece, currentX + 1, currentY);
+                    break;
+                case KeyEvent.VK_DOWN:
+                    oneLineDown();
+                    break;
+                case KeyEvent.VK_UP:
+                    rotatePiece();
+                    break;
+                case KeyEvent.VK_SPACE:
+                    dropDown();
+                    break;
+            }
+            repaint();
+        }
+    }
+
+    private void pause() {
+        isPaused = !isPaused;
+        repaint();
+    }
+
+    // definição do tetromino + lógica da rotação
+    enum Tetrominoes {
+        NoShape(new int[][] { { 0, 0 } }),
+        I(new int[][] { { 0, 1 }, { 1, 1 }, { 2, 1 }, { 3, 1 } }),
+        J(new int[][] { { 0, 0 }, { 0, 1 }, { 1, 1 }, { 2, 1 } }),
+        L(new int[][] { { 2, 0 }, { 0, 1 }, { 1, 1 }, { 2, 1 } }),
+        O(new int[][] { { 1, 0 }, { 2, 0 }, { 1, 1 }, { 2, 1 } }),
+        S(new int[][] { { 1, 0 }, { 2, 0 }, { 0, 1 }, { 1, 1 } }),
+        T(new int[][] { { 1, 0 }, { 0, 1 }, { 1, 1 }, { 2, 1 } }),
+        Z(new int[][] { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 2, 1 } });
+
+        int[][] coords;
+
+        Tetrominoes(int[][] coords) {
+            this.coords = deepCopy(coords);
+        }
+
+        private int[][] deepCopy(int[][] arr) {
+            int[][] out = new int[arr.length][2];
+            for (int i = 0; i < arr.length; i++)
+                out[i] = Arrays.copyOf(arr[i], 2);
+            return out;
+        }
+
+        Tetrominoes rotate() {
+            if (this == O || this == NoShape)
+                return this;
+            int[][] newCoords = new int[coords.length][2];
+            // rotação de 90 graus no sentido horário em torno da origem (x,y) -> (y, -x)
+            for (int i = 0; i < coords.length; i++) {
+                int x = coords[i][0];
+                int y = coords[i][1];
+                newCoords[i][0] = y;
+                newCoords[i][1] = -x;
+            }
+            // normalização para coordenadas positivas (mudança então min x,y = 0 or
+            // appropriate)
+            int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE;
+            for (int i = 0; i < newCoords.length; i++) {
+                if (newCoords[i][0] < minX)
+                    minX = newCoords[i][0];
+                if (newCoords[i][1] < minY)
+                    minY = newCoords[i][1];
+            }
+            for (int i = 0; i < newCoords.length; i++) {
+                newCoords[i][0] -= minX;
+                newCoords[i][1] -= minY;
+            }
+            Tetrominoes result = thisFromCoords(newCoords);
+            if (result != null)
+                return result;
+            // fallback: nova instância temporária do tipo tetromonio (não armazenada em
+            // enum)
+            Tetrominoes temp = this; // novas cordas
+            temp.coords = newCoords;
+            return temp;
+        }
+
+        // tentativa de mapear coordenadas para uma nova constante enum (usada apenas
+        // quando a rotação corresponde aos coordenados canônicos)
+        private Tetrominoes thisFromCoords(int[][] c) {
+            outer: for (Tetrominoes t : Tetrominoes.values()) {
+                if (t == NoShape)
+                    continue;
+                int[][] tcoords = t.coords;
+                if (tcoords.length != c.length)
+                    continue;
+                // compare ignoring order
+                boolean[] used = new boolean[c.length];
+                for (int i = 0; i < tcoords.length; i++) {
+                    boolean found = false;
+                    for (int j = 0; j < c.length; j++) {
+                        if (!used[j] && tcoords[i][0] == c[j][0] && tcoords[i][1] == c[j][1]) {
+                            found = true;
+                            used[j] = true;
+                            break;
+                        }
+                    }
+                    if (!found)
+                        continue outer;
+                }
+                return t;
+            }
+            return null;
+        }
+    }
+
+    // Método para criar botão Restart
+    private void createRestartButton() {
+        JButton restartButton = new JButton("Restart");
+        restartButton.addActionListener(e -> {
+            restartGame();
+        });
+        
+        // Configura o botão com borda colorida e visual personalizado
+        restartButton.setOpaque(false);
+        restartButton.setContentAreaFilled(false);
+        restartButton.setBorderPainted(true);
+        restartButton.setForeground(Color.BLACK);
+        
+        // Personaliza a borda com cor preta
+        restartButton.setBorder(BorderFactory.createLineBorder(new Color(0, 0, 0), 2));
+        
+        // Define o tamanho do botão
+        restartButton.setPreferredSize(new Dimension(100, 30));
+        
+        // Botão na parte inferior direita
+        this.setLayout(new BorderLayout());
+        JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        bottomPanel.setOpaque(false);
+        bottomPanel.add(restartButton);
+        this.add(bottomPanel, BorderLayout.SOUTH);
+        this.revalidate(); // Atualiza o layout sem redimensionar
+    }
+
+    // Método que reinicia o jogo
+    private void restartGame() {
+        // Reinicializa o estado do jogo
+        score = 0;
+        linesRemoved = 0;
+        clearBoard();
+        isPaused = false;
+
+        // Para o timer atual e cria um novo
+        if (timer != null) {
+            timer.stop();
+        }
+
+        // Gera novas peças e reinicia a posição
+        addKeyListener(new TAdapter());
+        nextPiece = randomPiece();
+        initGame();
+        Date date = new Date();
+        System.out.println(date.toString() + " Jogo reiniciado!");
+        
+        // Retorna o foco para o painel do jogo após reiniciar
+        this.requestFocus();
+        repaint();
+    }
+
+    // principal
+    private static void createAndShowGUI() {
+        JFrame frame = new JFrame("Block Storm");
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setLayout(new BorderLayout());
+        Block_Storm game = new Block_Storm();
+        frame.getContentPane().add(game, BorderLayout.CENTER);
+        frame.pack();
+        frame.setResizable(false);
+        frame.setLocationRelativeTo(null);
+        frame.setVisible(true);
+    }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(Block_Storm::createAndShowGUI);
+    }
+}
